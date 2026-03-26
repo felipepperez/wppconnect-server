@@ -173,13 +173,35 @@ export default class chatWootClient {
   // }
 
   async sendMessage(client: any, message: any) {
-    if (message.isGroupMsg || message.chatId.indexOf('@broadcast') > 0) return;
+    if (message.isGroupMsg) return;
+    if (typeof message.chatId === 'string' && message.chatId.includes('@broadcast'))
+      return;
 
-    const contact = await this.createContact(message);
-    const conversation = await this.createConversation(
-      contact,
-      message.chatId.split('@')[0]
-    );
+    const phoneNumber =
+      typeof message.chatId === 'string'
+        ? message.chatId.split('@')[0]
+        : typeof message?.sender?.id === 'object'
+          ? message.sender.id.user
+          : message?.sender?.id?.split?.('@')?.[0];
+
+    console.log('[chatwoot] tentando', phoneNumber || '');
+
+    let contact: any;
+    let conversation: any;
+    try {
+      contact = await this.createContact(message);
+      const sourceId =
+        typeof message.chatId === 'string' ? message.chatId.split('@')[0] : null;
+      conversation = await this.createConversation(contact, sourceId, message);
+    } catch (e) {
+      console.error('[chatwoot][erro] preparar', {
+        phone: phoneNumber || '',
+        error: e instanceof Error ? e.message : e,
+      });
+      return null;
+    }
+
+    if (!contact || !conversation || !conversation.id) return null;
 
     try {
       if (
@@ -232,19 +254,28 @@ export default class chatWootClient {
 
         const result = await axios.post(endpoint, data, configPost);
 
+        if (phoneNumber) console.log('[chatwoot] enviado', phoneNumber);
         return result;
       } else {
+        const content =
+          message.body ?? message.content ?? message.text ?? message.contentText;
+        const text = content != null ? String(content) : '';
         const body = {
-          content: message.body,
+          content: text,
           message_type: 'incoming',
         };
         const endpoint = `api/v1/accounts/${this.account_id}/conversations/${conversation.id}/messages`;
 
         const { data } = await this.api.post(endpoint, body);
+
+        if (phoneNumber) console.log('[chatwoot] enviado', phoneNumber);
         return data;
       }
     } catch (e) {
-      console.error('Error sending message:', e);
+      console.error('[chatwoot][erro] enviar', {
+        phone: phoneNumber || '',
+        error: e instanceof Error ? e.message : e,
+      });
       return null;
     }
   }
@@ -283,6 +314,21 @@ export default class chatWootClient {
       );
       return data.data.payload.contact;
     } catch (e) {
+      const axiosError: any = e;
+      const status = axiosError?.response?.status;
+      const messageText = axiosError?.response?.data?.message;
+
+      if (
+        status === 422 &&
+        typeof messageText === 'string' &&
+        messageText.toLowerCase().includes('phone number has already been taken')
+      ) {
+        const existing = await this.findContact(
+          body.phone_number.replace('+', '')
+        );
+        if (existing && existing.meta.count > 0) return existing.payload[0];
+      }
+
       console.log(e);
       return null;
     }
@@ -290,6 +336,7 @@ export default class chatWootClient {
 
   async findConversation(contact: any) {
     try {
+      if (!contact?.id) return null;
       const { data } = await this.api.get(
         `api/v1/accounts/${this.account_id}/contacts/${contact.id}/conversations`
       );
@@ -302,24 +349,52 @@ export default class chatWootClient {
     }
   }
 
-  async createConversation(contact: any, source_id: any) {
+  async createConversation(contact: any, source_id: any, message?: any) {
+    if (!contact?.id) return null;
     const conversation = await this.findConversation(contact);
     if (conversation) return conversation;
 
-    const body = {
-      source_id: source_id,
-      inbox_id: this.inbox_id,
-      contact_id: contact.id,
-      status: 'open',
-    };
-
     try {
+      const body = {
+        source_id: source_id,
+        inbox_id: this.inbox_id,
+        contact_id: contact.id,
+        status: 'open',
+      };
       const { data } = await this.api.post(
         `api/v1/accounts/${this.account_id}/conversations`,
         body
       );
       return data;
     } catch (e) {
+      const axiosError: any = e;
+      const status = axiosError?.response?.status;
+      const errorText = axiosError?.response?.data?.error;
+
+      if (
+        status === 422 &&
+        typeof errorText === 'string' &&
+        errorText.toLowerCase().includes('source_id should be unique')
+      ) {
+        const uniqueSuffix = message?.timestamp ?? message?.t ?? Date.now();
+        const retrySourceId =
+          source_id != null ? `${source_id}_${uniqueSuffix}` : String(uniqueSuffix);
+
+        const body = {
+          source_id: retrySourceId,
+          inbox_id: this.inbox_id,
+          contact_id: contact.id,
+          status: 'open',
+        };
+
+        const { data } = await this.api.post(
+          `api/v1/accounts/${this.account_id}/conversations`,
+          body
+        );
+
+        return data;
+      }
+
       console.log(e);
       return null;
     }

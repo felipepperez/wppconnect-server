@@ -2266,11 +2266,21 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
 
       const {
         message_type,
-        phone = req.body.conversation.meta.sender.phone_number.replace('+', ''),
-        message = req.body.conversation.messages[0],
       } = req.body;
+      const phoneFromBody =
+        req.body?.phone ||
+        req.body?.conversation?.meta?.sender?.phone_number;
+      const phone = phoneFromBody
+        ? phoneFromBody.replace('+', '')
+        : undefined;
+      const message = req.body?.conversation?.messages?.[0];
 
       if (event != 'message_created' && message_type != 'outgoing')
+        return res
+          .status(200)
+          .json({ status: 'success', message: 'Success on receive chatwoot' });
+
+      if (!phone || !message)
         return res
           .status(200)
           .json({ status: 'success', message: 'Success on receive chatwoot' });
