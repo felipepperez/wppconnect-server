@@ -78,14 +78,6 @@ export default class chatWootClient {
           } else if (typeof qrCode === 'string') {
             qrCodeBase64 = qrCode.replace('data:image/png;base64,', '');
           }
-          console.log('[chatwoot-client] before sendMessage (qrcode)', {
-            session,
-            hasQrCode: !!qrCode,
-            qrCodeSize: typeof qrCode === 'string' ? qrCode.length : 0,
-            hasUrlCode: !!urlCode,
-            generatedQrSize: qrCodeBase64.length,
-            hasClient: !!client,
-          });
           if (!qrCodeBase64) return;
           this.sendMessage(client, {
             sender: this.sender,
@@ -103,11 +95,6 @@ export default class chatWootClient {
     //assiona o evento do status
     eventEmitter.on(`status-${session}`, (client, status) => {
       if (config?.chatwoot?.sendStatus !== false) {
-        console.log('[chatwoot-client] before sendMessage (status)', {
-          session,
-          status,
-          hasClient: !!client,
-        });
         this.sendMessage(client, {
           sender: this.sender,
           chatId: this.mobile_number + '@c.us',
@@ -119,20 +106,6 @@ export default class chatWootClient {
     //assina o evento de mensagem
     eventEmitter.on(`mensagem-${session}`, (client, message) => {
       if (this.shouldIgnoreMessage(message)) return;
-      console.log('[chatwoot-client] before sendMessage (mensagem)', {
-        session,
-        hasClient: !!client,
-        messageId: message?.id,
-        chatId: message?.chatId,
-        type: message?.type,
-        isGroupMsg: message?.isGroupMsg,
-        broadcast: message?.broadcast,
-        isBroadcastMsg: message?.isBroadcastMsg,
-        bodyLength:
-          typeof message?.body === 'string' ? message.body.length : undefined,
-        hasAttachments:
-          Array.isArray(message?.attachments) && message.attachments.length > 0,
-      });
       this.sendMessage(client, message);
     });
   }

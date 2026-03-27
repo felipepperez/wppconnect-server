@@ -2277,106 +2277,105 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
     message_type === 'outgoing' &&
     ['!start', '!close', '!logout'].includes(command);
   try {
-    console.log('[chatwoot] raw payload', {
-      session,
-      body: req.body,
-    });
-    console.log('[chatwoot] command parser', {
-      session,
-      event,
-      message_type,
-      clientStatus: client?.status || null,
-      phone,
-      phoneNumber,
-      serviceNumber,
-      isServiceChannel,
-      commandRaw,
-      command,
-      isServiceCommand,
-      hasConversation: !!conversation,
-      hasMessageObject: !!message,
-      hasBodyContent: typeof req.body?.content === 'string',
-      messageContent: typeof message?.content === 'string' ? message.content : null,
-      bodyKeys: Object.keys(req.body || {}),
-    });
+    console.log(
+      `[chatwoot] session=${session} phone=${phoneNumber || '-'} event=${event || '-'} type=${message_type || '-'} command=${command || '-'} service=${isServiceChannel} valid=${isServiceCommand}`
+    );
     if (isServiceCommand) {
-      console.log('[chatwoot] service command detected', {
-        session,
-        command,
-        clientStatus: client?.status || null,
-      });
+      console.log(
+        `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=${command} status=${client?.status || '-'} accepted`
+      );
       if (command === '!start') {
         if (client?.status === 'CONNECTED') {
-          console.log('[chatwoot] !start ignored because already connected', {
-            session,
-            clientStatus: client?.status || null,
-          });
+          console.log(
+            `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!start ignored=already_connected`
+          );
           return res.status(200).json({
             status: 'success',
             message: 'Session already connected',
           });
         }
         if (!client?.config) {
-          console.warn('[chatwoot] !start rejected because config is missing', {
-            session,
-            clientStatus: client?.status || null,
-          });
+          console.warn(
+            `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!start rejected=missing_config`
+          );
           return res.status(400).json({
             status: 'error',
             message: 'Unable to start session without stored config',
           });
         }
         const util = new CreateSessionUtil();
-        const originalBody = req.body;
-        req.body = client.config;
-        await util.opendata(req as any, session);
-        req.body = originalBody;
-        console.log('[chatwoot] !start executed', {
-          session,
-          clientStatus: client?.status || null,
-        });
+        const requestForStart = Object.assign({}, req, { body: client.config });
+        util
+          .opendata(requestForStart as any, session)
+          .then(() => {
+            console.log(
+              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!start executed status=${clientsArray[session]?.status || '-'}`
+            );
+          })
+          .catch((error: any) => {
+            console.error(
+              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!start error=${error?.message || error}`
+            );
+          });
         return res.status(200).json({
           status: 'success',
-          message: 'Start command executed',
+          message: 'Start command accepted',
         });
       }
-
       if (!client) {
         return res.status(200).json({
           status: 'success',
           message: 'No active session to command',
         });
       }
-
       if (command === '!close') {
-        await client.close();
-        clientsArray[session] = {
-          status: null,
-          session,
-          config: client.config,
-        } as any;
+        client
+          .close()
+          .then(() => {
+            clientsArray[session] = {
+              status: null,
+              session,
+              config: client.config,
+            } as any;
+            console.log(
+              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!close executed`
+            );
+          })
+          .catch((error: any) => {
+            console.error(
+              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!close error=${error?.message || error}`
+            );
+          });
         return res.status(200).json({
           status: 'success',
-          message: 'Close command executed',
+          message: 'Close command accepted',
         });
       }
-
       if (command === '!logout') {
-        await client.logout();
-        deleteSessionOnArray(session);
+        client
+          .logout()
+          .then(() => {
+            deleteSessionOnArray(session);
+            console.log(
+              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!logout executed`
+            );
+          })
+          .catch((error: any) => {
+            console.error(
+              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!logout error=${error?.message || error}`
+            );
+          });
         return res.status(200).json({
           status: 'success',
-          message: 'Logout command executed',
+          message: 'Logout command accepted',
         });
       }
     }
 
     if (isServiceChannel && message_type === 'outgoing') {
-      console.log('[chatwoot] service channel outgoing ignored', {
-        session,
-        commandRaw,
-        command,
-      });
+      console.log(
+        `[chatwoot] session=${session} phone=${phoneNumber || '-'} service_outgoing_ignored`
+      );
       return res.status(200).json({
         status: 'success',
         message: 'Service channel message ignored',
@@ -2384,15 +2383,9 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
     }
 
     if (client == null || client.status !== 'CONNECTED') {
-      console.log('[chatwoot] session not connected, webhook accepted without forwarding', {
-        session,
-        clientStatus: client?.status || null,
-        event,
-        message_type,
-        commandRaw,
-        isServiceChannel,
-        isServiceCommand,
-      });
+      console.log(
+        `[chatwoot] session=${session} phone=${phoneNumber || '-'} not_connected status=${client?.status || '-'}`
+      );
       return res.status(200).json({
         status: 'success',
         message: 'Session not connected yet, webhook received',
@@ -2400,16 +2393,6 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
     }
 
     if (await client.isConnected()) {
-      console.log('[chatwoot] incoming webhook', {
-        session,
-        event,
-        message_type: req.body?.message_type,
-        hasConversation: !!req.body?.conversation,
-        hasMeta: !!req.body?.conversation?.meta,
-        hasMessagesArray: Array.isArray(req.body?.conversation?.messages),
-        bodyKeys: Object.keys(req.body || {}),
-      });
-
       if (
         event == 'conversation_status_changed' ||
         event == 'conversation_resolved' ||
@@ -2419,44 +2402,23 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
           .status(200)
           .json({ status: 'success', message: 'Success on receive chatwoot' });
       }
-      console.log('[chatwoot] resolved fields', {
-        session,
-        event,
-        message_type,
-        phoneSource: req.body?.phone ? 'body.phone' : 'conversation.meta.sender.phone_number',
-        messageSource: req.body?.message ? 'body.message' : 'conversation.messages[0]',
-        phone,
-        hasMessage: !!message,
-        conversationKeys: Object.keys(conversation || {}),
-        metaKeys: Object.keys(conversation?.meta || {}),
-      });
-
       if (event != 'message_created' && message_type != 'outgoing')
         return res
           .status(200)
           .json({ status: 'success', message: 'Success on receive chatwoot' });
       if (!phone)
-        console.warn('[chatwoot] missing phone in payload', {
-          session,
-          event,
-          message_type,
-          bodyKeys: Object.keys(req.body || {}),
-          conversationKeys: Object.keys(conversation || {}),
-          metaKeys: Object.keys(conversation?.meta || {}),
-        });
+        console.warn(
+          `[chatwoot] session=${session} phone=- missing_phone event=${event || '-'} type=${message_type || '-'}`
+        );
       if (!phone)
         return res.status(400).json({
           status: 'error',
           message: 'Invalid chatwoot payload: missing phone',
         });
       if (!message)
-        console.warn('[chatwoot] missing message in payload', {
-          session,
-          event,
-          message_type,
-          bodyKeys: Object.keys(req.body || {}),
-          conversationKeys: Object.keys(conversation || {}),
-        });
+        console.warn(
+          `[chatwoot] session=${session} phone=${phoneNumber || '-'} missing_message event=${event || '-'} type=${message_type || '-'}`
+        );
       if (!message)
         return res.status(400).json({
           status: 'error',
