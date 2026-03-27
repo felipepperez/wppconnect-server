@@ -2248,11 +2248,25 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
    */
   const { session } = req.params;
   const client: any = clientsArray[session];
-  if (client == null || client.status !== 'CONNECTED') return;
+  if (client == null || client.status !== 'CONNECTED') {
+    return res.status(200).json({
+      status: 'success',
+      message: 'Session not connected yet, webhook received',
+    });
+  }
   try {
     if (await client.isConnected()) {
       const event = req.body.event;
       const is_private = req.body.private || req.body.is_private;
+      console.log('[chatwoot] incoming webhook', {
+        session,
+        event,
+        message_type: req.body?.message_type,
+        hasConversation: !!req.body?.conversation,
+        hasMeta: !!req.body?.conversation?.meta,
+        hasMessagesArray: Array.isArray(req.body?.conversation?.messages),
+        bodyKeys: Object.keys(req.body || {}),
+      });
 
       if (
         event == 'conversation_status_changed' ||
@@ -2264,16 +2278,56 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
           .json({ status: 'success', message: 'Success on receive chatwoot' });
       }
 
-      const {
+      
+      const message_type = req.body?.message_type;
+      const conversation = req.body?.conversation;
+      const message = req.body?.message ?? conversation?.messages?.[0];
+      const phone =
+        req.body?.phone ??
+        conversation?.meta?.sender?.phone_number?.replace('+', '');
+      console.log('[chatwoot] resolved fields', {
+        session,
+        event,
         message_type,
-        phone = req.body.conversation.meta.sender.phone_number.replace('+', ''),
-        message = req.body.conversation.messages[0],
-      } = req.body;
+        phoneSource: req.body?.phone ? 'body.phone' : 'conversation.meta.sender.phone_number',
+        messageSource: req.body?.message ? 'body.message' : 'conversation.messages[0]',
+        phone,
+        hasMessage: !!message,
+        conversationKeys: Object.keys(conversation || {}),
+        metaKeys: Object.keys(conversation?.meta || {}),
+      });
 
       if (event != 'message_created' && message_type != 'outgoing')
         return res
           .status(200)
           .json({ status: 'success', message: 'Success on receive chatwoot' });
+      if (!phone)
+        console.warn('[chatwoot] missing phone in payload', {
+          session,
+          event,
+          message_type,
+          bodyKeys: Object.keys(req.body || {}),
+          conversationKeys: Object.keys(conversation || {}),
+          metaKeys: Object.keys(conversation?.meta || {}),
+        });
+      if (!phone)
+        return res.status(400).json({
+          status: 'error',
+          message: 'Invalid chatwoot payload: missing phone',
+        });
+      if (!message)
+        console.warn('[chatwoot] missing message in payload', {
+          session,
+          event,
+          message_type,
+          bodyKeys: Object.keys(req.body || {}),
+          conversationKeys: Object.keys(conversation || {}),
+        });
+      if (!message)
+        return res.status(400).json({
+          status: 'error',
+          message: 'Invalid chatwoot payload: missing message',
+        });
       for (const contato of contactToArray(phone, false)) {
         if (message_type == 'outgoing') {
           if (message.attachments) {

@@ -57,6 +57,12 @@ export default class chatWootClient {
     eventEmitter.on(`qrcode-${session}`, (qrCode, urlCode, client) => {
       setTimeout(async () => {
         if (config?.chatwoot?.sendQrCode !== false) {
+          console.log('[chatwoot-client] before sendMessage (qrcode)', {
+            session,
+            hasQrCode: !!qrCode,
+            qrCodeSize: typeof qrCode === 'string' ? qrCode.length : 0,
+            hasClient: !!client,
+          });
           this.sendMessage(client, {
             sender: this.sender,
             chatId: this.mobile_number + '@c.us',
@@ -73,6 +79,11 @@ export default class chatWootClient {
     //assiona o evento do status
     eventEmitter.on(`status-${session}`, (client, status) => {
       if (config?.chatwoot?.sendStatus !== false) {
+        console.log('[chatwoot-client] before sendMessage (status)', {
+          session,
+          status,
+          hasClient: !!client,
+        });
         this.sendMessage(client, {
           sender: this.sender,
           chatId: this.mobile_number + '@c.us',
@@ -83,6 +94,20 @@ export default class chatWootClient {
 
     //assina o evento de mensagem
     eventEmitter.on(`mensagem-${session}`, (client, message) => {
+      console.log('[chatwoot-client] before sendMessage (mensagem)', {
+        session,
+        hasClient: !!client,
+        messageId: message?.id,
+        chatId: message?.chatId,
+        type: message?.type,
+        isGroupMsg: message?.isGroupMsg,
+        broadcast: message?.broadcast,
+        isBroadcastMsg: message?.isBroadcastMsg,
+        bodyLength:
+          typeof message?.body === 'string' ? message.body.length : undefined,
+        hasAttachments:
+          Array.isArray(message?.attachments) && message.attachments.length > 0,
+      });
       this.sendMessage(client, message);
     });
   }
@@ -173,26 +198,28 @@ export default class chatWootClient {
   // }
 
   async sendMessage(client: any, message: any) {
-    if (message.isGroupMsg || message.chatId.indexOf('@broadcast') > 0) return;
+    const chatId = message?.chatId || '';
+    const isBroadcast =
+      message?.broadcast === true ||
+      message?.isBroadcastMsg === true ||
+      chatId.includes('@broadcast');
+    const mediaTypes = ['image', 'video', 'in', 'document', 'ptt', 'audio', 'sticker'];
+    const isMediaMessage = mediaTypes.includes(message?.type);
+    const hasTextContent =
+      typeof message?.body === 'string' && message.body.trim().length > 0;
+    if (message?.isGroupMsg || isBroadcast || !chatId) return;
+    if (!isMediaMessage && !hasTextContent) return;
 
     const contact = await this.createContact(message);
+    if (!contact) return;
     const conversation = await this.createConversation(
       contact,
       message.chatId.split('@')[0]
     );
+    if (!conversation) return;
 
     try {
-      if (
-        [
-          'image',
-          'video',
-          'in',
-          'document',
-          'ptt',
-          'audio',
-          'sticker',
-        ].includes(message.type)
-      ) {
+      if (isMediaMessage) {
         if (message.mimetype === 'image/webp') message.mimetype = 'image/jpeg';
         const extension = mime.extension(message.mimetype);
         const filename = `${message.timestamp}.${extension}`;
