@@ -282,7 +282,6 @@ export default class CreateSessionUtil {
 
   async listenMessages(client: WhatsAppServer, req: Request) {
     await client.onMessage(async (message: any) => {
-      eventEmitter.emit(`mensagem-${client.session}`, client, message);
       callWebHook(client, req, 'onmessage', message);
       if (message.type === 'location')
         client.onLiveLocation(message.sender.id, (location) => {
@@ -304,6 +303,10 @@ export default class CreateSessionUtil {
         await autoDownload(client, req, message);
       }
 
+      if (message.fromMe == false) {
+        eventEmitter.emit(`mensagem-${client.session}`, client, message);
+      }
+      
       req.io.emit('received-message', { response: message });
       if (req.serverOptions.webhook.onSelfMessage && message.fromMe)
         callWebHook(client, req, 'onselfmessage', message);
