@@ -420,6 +420,7 @@ export default class chatWootClient {
       inbox_id: this.inbox_id,
       contact_id: contact.id,
       status: 'open',
+      assignee_id: null,
     };
 
     const createConversationPromise = (async () => {

@@ -16,8 +16,9 @@
 import { Chat } from '@wppconnect-team/wppconnect';
 import { Request, Response } from 'express';
 
+import CreateSessionUtil from '../util/createSessionUtil';
 import { contactToArray, unlinkAsync } from '../util/functions';
-import { clientsArray } from '../util/sessionUtil';
+import { clientsArray, deleteSessionOnArray } from '../util/sessionUtil';
 
 function returnSucess(res: any, session: any, phone: any, data: any) {
   res.status(201).json({
@@ -2248,16 +2249,96 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
    */
   const { session } = req.params;
   const client: any = clientsArray[session];
-  if (client == null || client.status !== 'CONNECTED') {
-    return res.status(200).json({
-      status: 'success',
-      message: 'Session not connected yet, webhook received',
-    });
-  }
+  const event = req.body?.event;
+  const is_private = req.body?.private || req.body?.is_private;
+  const message_type = req.body?.message_type;
+  const conversation = req.body?.conversation;
+  const message = req.body?.message ?? conversation?.messages?.[0];
+  const phone =
+    req.body?.phone ?? conversation?.meta?.sender?.phone_number?.replace('+', '');
+  const normalizePhone = (value: any) => String(value || '').replace(/\D/g, '');
+  const serviceNumber = normalizePhone(
+    client?.config?.chatWoot?.mobile_number || client?.config?.mobile_number
+  );
+  const phoneNumber = normalizePhone(phone);
+  const isServiceChannel = !!serviceNumber && !!phoneNumber && serviceNumber === phoneNumber;
+  const commandRaw = typeof message?.content === 'string' ? message.content.trim() : '';
+  const command = commandRaw.toLowerCase();
+  const isServiceCommand =
+    isServiceChannel &&
+    message_type === 'outgoing' &&
+    ['!start', '!close', '!logout'].includes(command);
   try {
+    if (isServiceCommand) {
+      if (command === '!start') {
+        if (client?.status === 'CONNECTED') {
+          return res.status(200).json({
+            status: 'success',
+            message: 'Session already connected',
+          });
+        }
+        if (!client?.config) {
+          return res.status(400).json({
+            status: 'error',
+            message: 'Unable to start session without stored config',
+          });
+        }
+        const util = new CreateSessionUtil();
+        const originalBody = req.body;
+        req.body = client.config;
+        await util.opendata(req as any, session);
+        req.body = originalBody;
+        return res.status(200).json({
+          status: 'success',
+          message: 'Start command executed',
+        });
+      }
+
+      if (!client) {
+        return res.status(200).json({
+          status: 'success',
+          message: 'No active session to command',
+        });
+      }
+
+      if (command === '!close') {
+        await client.close();
+        clientsArray[session] = {
+          status: null,
+          session,
+          config: client.config,
+        } as any;
+        return res.status(200).json({
+          status: 'success',
+          message: 'Close command executed',
+        });
+      }
+
+      if (command === '!logout') {
+        await client.logout();
+        deleteSessionOnArray(session);
+        return res.status(200).json({
+          status: 'success',
+          message: 'Logout command executed',
+        });
+      }
+    }
+
+    if (isServiceChannel && message_type === 'outgoing') {
+      return res.status(200).json({
+        status: 'success',
+        message: 'Service channel message ignored',
+      });
+    }
+
+    if (client == null || client.status !== 'CONNECTED') {
+      return res.status(200).json({
+        status: 'success',
+        message: 'Session not connected yet, webhook received',
+      });
+    }
+
     if (await client.isConnected()) {
-      const event = req.body.event;
-      const is_private = req.body.private || req.body.is_private;
       console.log('[chatwoot] incoming webhook', {
         session,
         event,
@@ -2277,14 +2358,6 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
           .status(200)
           .json({ status: 'success', message: 'Success on receive chatwoot' });
       }
-
-      
-      const message_type = req.body?.message_type;
-      const conversation = req.body?.conversation;
-      const message = req.body?.message ?? conversation?.messages?.[0];
-      const phone =
-        req.body?.phone ??
-        conversation?.meta?.sender?.phone_number?.replace('+', '');
       console.log('[chatwoot] resolved fields', {
         session,
         event,
