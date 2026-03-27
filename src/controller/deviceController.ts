@@ -2278,6 +2278,9 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
     ['!start', '!close', '!logout'].includes(command);
   const chatwootLogPrefix = `[${session}:chatwoot]`;
   try {
+    req.logger.info(
+      `${chatwootLogPrefix} command_debug event=${event || '-'} type=${message_type || '-'} phone=${phoneNumber || '-'} service=${isServiceChannel} cmdRaw=${commandRaw || '-'} cmd=${command || '-'} private=${Boolean(is_private)}`
+    );
     if (isServiceCommand) {
       req.logger.info(
         `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=${command} accepted`
