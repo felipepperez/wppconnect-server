@@ -20,6 +20,7 @@ import QRCode from 'qrcode';
 
 import bufferutils from './bufferutils';
 // import bufferUtils from './bufferutils';
+import { setChatWootServicePhone } from './chatWootServicePhone';
 import { eventEmitter } from './sessionUtil';
 
 export default class chatWootClient {
@@ -42,6 +43,7 @@ export default class chatWootClient {
     this.mobile_number = this.config.mobile_number
       ? this.config.mobile_number
       : '5511999999999';
+    setChatWootServicePhone(session, this.mobile_number);
     this.sender = {
       pushname: this.mobile_name,
       id: this.mobile_number,

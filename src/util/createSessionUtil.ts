@@ -19,6 +19,7 @@ import { Request } from 'express';
 import { download } from './mediaDownloadUtil';
 import { WhatsAppServer } from '../types/WhatsAppServer';
 import chatWootClient from './chatWootClient';
+import { persistChatWootStartBody } from './chatWootServicePhone';
 import { autoDownload, callWebHook, startHelper } from './functions';
 import { clientsArray, eventEmitter } from './sessionUtil';
 import Factory from './tokenStore/factory';
@@ -44,6 +45,9 @@ export default class CreateSessionUtil {
       if (client.status != null && client.status !== 'CLOSED') return;
       client.status = 'INITIALIZING';
       client.config = req.body;
+      if (req.body?.chatWoot) {
+        persistChatWootStartBody(session, req.body);
+      }
 
       const tokenStore = new Factory();
       const myTokenStore = tokenStore.createTokenStory(client);

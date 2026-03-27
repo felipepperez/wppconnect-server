@@ -17,6 +17,11 @@ import { Chat } from '@wppconnect-team/wppconnect';
 import { Request, Response } from 'express';
 
 import CreateSessionUtil from '../util/createSessionUtil';
+import {
+  getChatWootServicePhone,
+  getChatWootStartBodyFromDisk,
+  setChatWootServicePhone,
+} from '../util/chatWootServicePhone';
 import { contactToArray, unlinkAsync } from '../util/functions';
 import { clientsArray, deleteSessionOnArray } from '../util/sessionUtil';
 
@@ -2260,8 +2265,13 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
     req.body?.meta?.sender?.phone_number?.replace('+', '') ??
     req.body?.sender?.phone_number?.replace('+', '');
   const normalizePhone = (value: any) => String(value || '').replace(/\D/g, '');
+  const serviceNumberFromClient =
+    client?.config?.chatWoot?.mobile_number || client?.config?.mobile_number;
+  if (serviceNumberFromClient) {
+    setChatWootServicePhone(session, serviceNumberFromClient);
+  }
   const serviceNumber = normalizePhone(
-    client?.config?.chatWoot?.mobile_number || client?.config?.mobile_number
+    serviceNumberFromClient || getChatWootServicePhone(session)
   );
   const phoneNumber = normalizePhone(phone);
   const isServiceChannel = !!serviceNumber && !!phoneNumber && serviceNumber === phoneNumber;
@@ -2279,7 +2289,7 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
   const chatwootLogPrefix = `[${session}:chatwoot]`;
   try {
     req.logger.info(
-      `${chatwootLogPrefix} command_debug event=${event || '-'} type=${message_type || '-'} phone=${phoneNumber || '-'} service=${isServiceChannel} cmdRaw=${commandRaw || '-'} cmd=${command || '-'} private=${Boolean(is_private)}`
+      `${chatwootLogPrefix} command_debug event=${event || '-'} type=${message_type || '-'} phone=${phoneNumber || '-'} svcNum=${serviceNumber || '-'} service=${isServiceChannel} cmdRaw=${commandRaw || '-'} cmd=${command || '-'} private=${Boolean(is_private)}`
     );
     if (isServiceCommand) {
       req.logger.info(
@@ -2295,7 +2305,11 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
             message: 'Session already connected',
           });
         }
-        if (!client?.config) {
+        const startBody =
+          client?.config?.chatWoot
+            ? client.config
+            : getChatWootStartBodyFromDisk(session);
+        if (!startBody?.chatWoot) {
           req.logger.warn(
             `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=!start rejected=missing_config`
           );
@@ -2305,7 +2319,7 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
           });
         }
         const util = new CreateSessionUtil();
-        const requestForStart = Object.assign({}, req, { body: client.config });
+        const requestForStart = Object.assign({}, req, { body: startBody });
         util
           .opendata(requestForStart as any, session)
           .then(() => {
