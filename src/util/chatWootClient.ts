@@ -32,6 +32,7 @@ export default class chatWootClient {
   declare inbox_id: any;
   declare api: AxiosInstance;
   declare contactCreationLocks: Map<string, Promise<any>>;
+  declare conversationCreationLocks: Map<string, Promise<any>>;
 
   constructor(config: any, session: string) {
     this.config = config;
@@ -55,6 +56,10 @@ export default class chatWootClient {
       },
     });
     this.contactCreationLocks = new Map();
+    this.conversationCreationLocks = new Map();
+    eventEmitter.removeAllListeners(`qrcode-${session}`);
+    eventEmitter.removeAllListeners(`status-${session}`);
+    eventEmitter.removeAllListeners(`mensagem-${session}`);
 
     //assina o evento do qrcode
     eventEmitter.on(`qrcode-${session}`, (qrCode, urlCode, client) => {
@@ -113,6 +118,7 @@ export default class chatWootClient {
 
     //assina o evento de mensagem
     eventEmitter.on(`mensagem-${session}`, (client, message) => {
+      if (this.shouldIgnoreMessage(message)) return;
       console.log('[chatwoot-client] before sendMessage (mensagem)', {
         session,
         hasClient: !!client,
@@ -216,17 +222,25 @@ export default class chatWootClient {
   //   }
   // }
 
-  async sendMessage(client: any, message: any) {
+  shouldIgnoreMessage(message: any) {
     const chatId = message?.chatId || '';
+    const type = String(message?.type || '');
     const isBroadcast =
       message?.broadcast === true ||
       message?.isBroadcastMsg === true ||
-      chatId.includes('@broadcast');
+      chatId.includes('@broadcast') ||
+      String(message?.id || '').includes('status@broadcast');
+    const unsupportedTypes = ['gp2', 'notification_template', 'protocol'];
+    return message?.isGroupMsg || isBroadcast || !chatId || unsupportedTypes.includes(type);
+  }
+
+  async sendMessage(client: any, message: any) {
+    const chatId = message?.chatId || '';
+    if (this.shouldIgnoreMessage(message)) return;
     const mediaTypes = ['image', 'video', 'in', 'document', 'ptt', 'audio', 'sticker'];
     const isMediaMessage = mediaTypes.includes(message?.type);
     const hasTextContent =
       typeof message?.body === 'string' && message.body.trim().length > 0;
-    if (message?.isGroupMsg || isBroadcast || !chatId) return;
     if (!isMediaMessage && !hasTextContent) return;
 
     const contact = await this.createContact(message);
@@ -374,9 +388,19 @@ export default class chatWootClient {
       const { data } = await this.api.get(
         `api/v1/accounts/${this.account_id}/contacts/${contact.id}/conversations`
       );
-      return data.payload.find(
-        (e: any) => e.inbox_id == this.inbox_id && e.status != 'resolved'
-      );
+      const conversations = Array.isArray(data?.payload) ? data.payload : [];
+      const activeConversations = conversations
+        .filter((e: any) => e?.inbox_id == this.inbox_id && e?.status !== 'resolved')
+        .sort((a: any, b: any) => {
+          const aDate = new Date(
+            a?.last_activity_at || a?.updated_at || a?.created_at || 0
+          ).getTime();
+          const bDate = new Date(
+            b?.last_activity_at || b?.updated_at || b?.created_at || 0
+          ).getTime();
+          return bDate - aDate;
+        });
+      return activeConversations[0] || null;
     } catch (e) {
       console.log(e);
       return null;
@@ -384,25 +408,39 @@ export default class chatWootClient {
   }
 
   async createConversation(contact: any, source_id: any) {
+    const sourceId = String(source_id || '');
+    if (!sourceId) return null;
     const conversation = await this.findConversation(contact);
     if (conversation) return conversation;
+    const pendingCreation = this.conversationCreationLocks.get(sourceId);
+    if (pendingCreation) return await pendingCreation;
 
     const body = {
-      source_id: source_id,
+      source_id: sourceId,
       inbox_id: this.inbox_id,
       contact_id: contact.id,
       status: 'open',
     };
 
-    try {
-      const { data } = await this.api.post(
-        `api/v1/accounts/${this.account_id}/conversations`,
-        body
-      );
-      return data;
-    } catch (e) {
-      console.log(e);
-      return null;
-    }
+    const createConversationPromise = (async () => {
+      const recheck = await this.findConversation(contact);
+      if (recheck) return recheck;
+      try {
+        const { data } = await this.api.post(
+          `api/v1/accounts/${this.account_id}/conversations`,
+          body
+        );
+        return data;
+      } catch (e) {
+        const postErrorCheck = await this.findConversation(contact);
+        if (postErrorCheck) return postErrorCheck;
+        console.log(e);
+        return null;
+      } finally {
+        this.conversationCreationLocks.delete(sourceId);
+      }
+    })();
+    this.conversationCreationLocks.set(sourceId, createConversationPromise);
+    return await createConversationPromise;
   }
 }
