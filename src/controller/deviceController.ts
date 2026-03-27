@@ -2276,18 +2276,16 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
     isServiceChannel &&
     message_type === 'outgoing' &&
     ['!start', '!close', '!logout'].includes(command);
+  const chatwootLogPrefix = `[${session}:chatwoot]`;
   try {
-    console.log(
-      `[chatwoot] session=${session} phone=${phoneNumber || '-'} event=${event || '-'} type=${message_type || '-'} command=${command || '-'} service=${isServiceChannel} valid=${isServiceCommand}`
-    );
     if (isServiceCommand) {
-      console.log(
-        `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=${command} status=${client?.status || '-'} accepted`
+      req.logger.info(
+        `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=${command} accepted`
       );
       if (command === '!start') {
         if (client?.status === 'CONNECTED') {
-          console.log(
-            `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!start ignored=already_connected`
+          req.logger.warn(
+            `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=!start ignored=already_connected`
           );
           return res.status(200).json({
             status: 'success',
@@ -2295,8 +2293,8 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
           });
         }
         if (!client?.config) {
-          console.warn(
-            `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!start rejected=missing_config`
+          req.logger.warn(
+            `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=!start rejected=missing_config`
           );
           return res.status(400).json({
             status: 'error',
@@ -2308,13 +2306,13 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
         util
           .opendata(requestForStart as any, session)
           .then(() => {
-            console.log(
-              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!start executed status=${clientsArray[session]?.status || '-'}`
+            req.logger.info(
+              `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=!start executed status=${clientsArray[session]?.status || '-'}`
             );
           })
           .catch((error: any) => {
-            console.error(
-              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!start error=${error?.message || error}`
+            req.logger.error(
+              `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=!start error=${error?.message || error}`
             );
           });
         return res.status(200).json({
@@ -2337,13 +2335,13 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
               session,
               config: client.config,
             } as any;
-            console.log(
-              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!close executed`
+            req.logger.info(
+              `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=!close executed`
             );
           })
           .catch((error: any) => {
-            console.error(
-              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!close error=${error?.message || error}`
+            req.logger.error(
+              `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=!close error=${error?.message || error}`
             );
           });
         return res.status(200).json({
@@ -2356,13 +2354,13 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
           .logout()
           .then(() => {
             deleteSessionOnArray(session);
-            console.log(
-              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!logout executed`
+            req.logger.info(
+              `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=!logout executed`
             );
           })
           .catch((error: any) => {
-            console.error(
-              `[chatwoot] session=${session} phone=${phoneNumber || '-'} command=!logout error=${error?.message || error}`
+            req.logger.error(
+              `${chatwootLogPrefix} phone=${phoneNumber || '-'} command=!logout error=${error?.message || error}`
             );
           });
         return res.status(200).json({
@@ -2373,9 +2371,6 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
     }
 
     if (isServiceChannel && message_type === 'outgoing') {
-      console.log(
-        `[chatwoot] session=${session} phone=${phoneNumber || '-'} service_outgoing_ignored`
-      );
       return res.status(200).json({
         status: 'success',
         message: 'Service channel message ignored',
@@ -2383,9 +2378,6 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
     }
 
     if (client == null || client.status !== 'CONNECTED') {
-      console.log(
-        `[chatwoot] session=${session} phone=${phoneNumber || '-'} not_connected status=${client?.status || '-'}`
-      );
       return res.status(200).json({
         status: 'success',
         message: 'Session not connected yet, webhook received',
@@ -2407,8 +2399,8 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
           .status(200)
           .json({ status: 'success', message: 'Success on receive chatwoot' });
       if (!phone)
-        console.warn(
-          `[chatwoot] session=${session} phone=- missing_phone event=${event || '-'} type=${message_type || '-'}`
+        req.logger.warn(
+          `${chatwootLogPrefix} phone=- missing_phone event=${event || '-'} type=${message_type || '-'}`
         );
       if (!phone)
         return res.status(400).json({
@@ -2416,8 +2408,8 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
           message: 'Invalid chatwoot payload: missing phone',
         });
       if (!message)
-        console.warn(
-          `[chatwoot] session=${session} phone=${phoneNumber || '-'} missing_message event=${event || '-'} type=${message_type || '-'}`
+        req.logger.warn(
+          `${chatwootLogPrefix} phone=${phoneNumber || '-'} missing_message event=${event || '-'} type=${message_type || '-'}`
         );
       if (!message)
         return res.status(400).json({
@@ -2459,7 +2451,7 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
         .json({ status: 'success', message: 'Success on  receive chatwoot' });
     }
   } catch (e) {
-    console.log(e);
+    req.logger.error(e);
     res.status(400).json({
       status: 'error',
       message: 'Error on  receive chatwoot',

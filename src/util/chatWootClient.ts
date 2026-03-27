@@ -98,7 +98,7 @@ export default class chatWootClient {
         this.sendMessage(client, {
           sender: this.sender,
           chatId: this.mobile_number + '@c.us',
-          body: `wppconnect status: ${status} `,
+          body: this.formatStatusMessage(status),
         });
       }
     });
@@ -205,6 +205,21 @@ export default class chatWootClient {
       String(message?.id || '').includes('status@broadcast');
     const unsupportedTypes = ['gp2', 'notification_template', 'protocol'];
     return message?.isGroupMsg || isBroadcast || !chatId || unsupportedTypes.includes(type);
+  }
+
+  formatStatusMessage(status: any) {
+    const normalizedStatus = String(status || '').trim();
+    const labelByStatus: Record<string, string> = {
+      inChat: '💬 Em chat',
+      isLogged: '✅ Conectado',
+      disconnectedMobile: '📴 Celular desconectado',
+      browserClose: '🛑 Navegador fechado',
+      qrReadSuccess: '🔐 QR lido com sucesso',
+      qrReadFail: '⚠️ Falha na leitura do QR',
+      autocloseCalled: '⏱️ Sessao encerrada automaticamente',
+      desconnectedMobile: '📴 Celular desconectado',
+    };
+    return labelByStatus[normalizedStatus] || `ℹ️ ${normalizedStatus || 'Status'}`;
   }
 
   async sendMessage(client: any, message: any) {
