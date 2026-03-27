@@ -2255,29 +2255,72 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
   const conversation = req.body?.conversation;
   const message = req.body?.message ?? conversation?.messages?.[0];
   const phone =
-    req.body?.phone ?? conversation?.meta?.sender?.phone_number?.replace('+', '');
+    req.body?.phone ??
+    conversation?.meta?.sender?.phone_number?.replace('+', '') ??
+    req.body?.meta?.sender?.phone_number?.replace('+', '') ??
+    req.body?.sender?.phone_number?.replace('+', '');
   const normalizePhone = (value: any) => String(value || '').replace(/\D/g, '');
   const serviceNumber = normalizePhone(
     client?.config?.chatWoot?.mobile_number || client?.config?.mobile_number
   );
   const phoneNumber = normalizePhone(phone);
   const isServiceChannel = !!serviceNumber && !!phoneNumber && serviceNumber === phoneNumber;
-  const commandRaw = typeof message?.content === 'string' ? message.content.trim() : '';
+  const commandRaw =
+    typeof req.body?.content === 'string'
+      ? req.body.content.trim()
+      : typeof message?.content === 'string'
+      ? message.content.trim()
+      : '';
   const command = commandRaw.toLowerCase();
   const isServiceCommand =
     isServiceChannel &&
     message_type === 'outgoing' &&
     ['!start', '!close', '!logout'].includes(command);
   try {
+    console.log('[chatwoot] raw payload', {
+      session,
+      body: req.body,
+    });
+    console.log('[chatwoot] command parser', {
+      session,
+      event,
+      message_type,
+      clientStatus: client?.status || null,
+      phone,
+      phoneNumber,
+      serviceNumber,
+      isServiceChannel,
+      commandRaw,
+      command,
+      isServiceCommand,
+      hasConversation: !!conversation,
+      hasMessageObject: !!message,
+      hasBodyContent: typeof req.body?.content === 'string',
+      messageContent: typeof message?.content === 'string' ? message.content : null,
+      bodyKeys: Object.keys(req.body || {}),
+    });
     if (isServiceCommand) {
+      console.log('[chatwoot] service command detected', {
+        session,
+        command,
+        clientStatus: client?.status || null,
+      });
       if (command === '!start') {
         if (client?.status === 'CONNECTED') {
+          console.log('[chatwoot] !start ignored because already connected', {
+            session,
+            clientStatus: client?.status || null,
+          });
           return res.status(200).json({
             status: 'success',
             message: 'Session already connected',
           });
         }
         if (!client?.config) {
+          console.warn('[chatwoot] !start rejected because config is missing', {
+            session,
+            clientStatus: client?.status || null,
+          });
           return res.status(400).json({
             status: 'error',
             message: 'Unable to start session without stored config',
@@ -2288,6 +2331,10 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
         req.body = client.config;
         await util.opendata(req as any, session);
         req.body = originalBody;
+        console.log('[chatwoot] !start executed', {
+          session,
+          clientStatus: client?.status || null,
+        });
         return res.status(200).json({
           status: 'success',
           message: 'Start command executed',
@@ -2325,6 +2372,11 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
     }
 
     if (isServiceChannel && message_type === 'outgoing') {
+      console.log('[chatwoot] service channel outgoing ignored', {
+        session,
+        commandRaw,
+        command,
+      });
       return res.status(200).json({
         status: 'success',
         message: 'Service channel message ignored',
@@ -2332,6 +2384,15 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
     }
 
     if (client == null || client.status !== 'CONNECTED') {
+      console.log('[chatwoot] session not connected, webhook accepted without forwarding', {
+        session,
+        clientStatus: client?.status || null,
+        event,
+        message_type,
+        commandRaw,
+        isServiceChannel,
+        isServiceCommand,
+      });
       return res.status(200).json({
         status: 'success',
         message: 'Session not connected yet, webhook received',
