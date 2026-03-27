@@ -16,6 +16,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { default as FormData } from 'form-data';
 import mime from 'mime-types';
+import QRCode from 'qrcode';
 
 import bufferutils from './bufferutils';
 // import bufferUtils from './bufferutils';
@@ -30,6 +31,7 @@ export default class chatWootClient {
   declare account_id: any;
   declare inbox_id: any;
   declare api: AxiosInstance;
+  declare contactCreationLocks: Map<string, Promise<any>>;
 
   constructor(config: any, session: string) {
     this.config = config;
@@ -52,17 +54,34 @@ export default class chatWootClient {
         api_access_token: this.config.token,
       },
     });
+    this.contactCreationLocks = new Map();
 
     //assina o evento do qrcode
     eventEmitter.on(`qrcode-${session}`, (qrCode, urlCode, client) => {
       setTimeout(async () => {
         if (config?.chatwoot?.sendQrCode !== false) {
+          let qrCodeBase64 = '';
+          if (urlCode) {
+            const qrOptions = {
+              errorCorrectionLevel: 'M' as const,
+              type: 'image/png' as const,
+              scale: 5,
+              width: 500,
+            };
+            const qrDataUrl = await QRCode.toDataURL(urlCode, qrOptions);
+            qrCodeBase64 = qrDataUrl.replace('data:image/png;base64,', '');
+          } else if (typeof qrCode === 'string') {
+            qrCodeBase64 = qrCode.replace('data:image/png;base64,', '');
+          }
           console.log('[chatwoot-client] before sendMessage (qrcode)', {
             session,
             hasQrCode: !!qrCode,
             qrCodeSize: typeof qrCode === 'string' ? qrCode.length : 0,
+            hasUrlCode: !!urlCode,
+            generatedQrSize: qrCodeBase64.length,
             hasClient: !!client,
           });
+          if (!qrCodeBase64) return;
           this.sendMessage(client, {
             sender: this.sender,
             chatId: this.mobile_number + '@c.us',
@@ -70,7 +89,7 @@ export default class chatWootClient {
             timestamp: 'qrcode',
             mimetype: 'image/png',
             caption: 'leia o qrCode',
-            qrCode: qrCode.replace('data:image/png;base64,', ''),
+            qrCode: qrCodeBase64,
           });
         }
       }, 1000);
@@ -288,31 +307,66 @@ export default class chatWootClient {
     }
   }
 
+  normalizePhone(value: any) {
+    return String(value || '').replace(/\D/g, '');
+  }
+
+  findExactContactByPhone(contactSearchResult: any, phoneDigits: string) {
+    if (!contactSearchResult || !Array.isArray(contactSearchResult.payload)) return null;
+    return (
+      contactSearchResult.payload.find(
+        (contact: any) => this.normalizePhone(contact?.phone_number) === phoneDigits
+      ) || null
+    );
+  }
+
   async createContact(message: any) {
+    const rawSenderId =
+      typeof message?.sender?.id == 'object'
+        ? message?.sender?.id?.user
+        : String(message?.sender?.id || '').split('@')[0];
+    const phoneDigits = this.normalizePhone(rawSenderId);
+    if (!phoneDigits) return null;
     const body = {
       inbox_id: this.inbox_id,
       name: message.sender.isMyContact
         ? message.sender.formattedName
         : message.sender.pushname || message.sender.formattedName,
-      phone_number:
-        typeof message.sender.id == 'object'
-          ? message.sender.id.user
-          : message.sender.id.split('@')[0],
+      phone_number: `+${phoneDigits}`,
     };
-    body.phone_number = `+${body.phone_number}`;
-    const contact = await this.findContact(body.phone_number.replace('+', ''));
-    if (contact && contact.meta.count > 0) return contact.payload[0];
+    const contact = await this.findContact(phoneDigits);
+    const exactContact = this.findExactContactByPhone(contact, phoneDigits);
+    if (exactContact) return exactContact;
 
-    try {
-      const data = await this.api.post(
-        `api/v1/accounts/${this.account_id}/contacts`,
-        body
-      );
-      return data.data.payload.contact;
-    } catch (e) {
-      console.log(e);
-      return null;
-    }
+    const pendingCreation = this.contactCreationLocks.get(phoneDigits);
+    if (pendingCreation) return await pendingCreation;
+
+    const createContactPromise = (async () => {
+      const recheck = await this.findContact(phoneDigits);
+      const recheckContact = this.findExactContactByPhone(recheck, phoneDigits);
+      if (recheckContact) return recheckContact;
+
+      try {
+        const data = await this.api.post(
+          `api/v1/accounts/${this.account_id}/contacts`,
+          body
+        );
+        return data.data.payload.contact;
+      } catch (e) {
+        const postErrorCheck = await this.findContact(phoneDigits);
+        const postErrorContact = this.findExactContactByPhone(
+          postErrorCheck,
+          phoneDigits
+        );
+        if (postErrorContact) return postErrorContact;
+        console.log(e);
+        return null;
+      } finally {
+        this.contactCreationLocks.delete(phoneDigits);
+      }
+    })();
+    this.contactCreationLocks.set(phoneDigits, createContactPromise);
+    return await createContactPromise;
   }
 
   async findConversation(contact: any) {
