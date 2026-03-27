@@ -20,7 +20,6 @@ import winston from 'winston';
 // because there is no winston.format.simple()
 const jsonLogFileFormat = winston.format.combine(
   winston.format.errors({ stack: true }),
-  winston.format.timestamp(),
   winston.format.prettyPrint()
 );
 
@@ -40,12 +39,12 @@ export function createLogger(options: any) {
         format: winston.format.combine(
           winston.format.errors({ stack: true }),
           winston.format.colorize(),
-          winston.format.printf(({ level, message, timestamp, stack }) => {
+          winston.format.printf(({ level, message, stack }) => {
             if (stack) {
               // print log trace
-              return `${level}: ${timestamp} ${message} - ${stack}`;
+              return `${level}: ${message} - ${stack}`;
             }
-            return `${level}: ${timestamp} ${message}`;
+            return `${level}: ${message}`;
           })
         ),
       })

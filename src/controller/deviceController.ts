@@ -2274,7 +2274,7 @@ export async function chatWoot(req: Request, res: Response): Promise<any> {
   const command = commandRaw.toLowerCase();
   const isServiceCommand =
     isServiceChannel &&
-    message_type === 'outgoing' &&
+    event === 'message_created' &&
     ['!start', '!close', '!logout'].includes(command);
   const chatwootLogPrefix = `[${session}:chatwoot]`;
   try {
