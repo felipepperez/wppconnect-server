@@ -361,6 +361,10 @@
                   "waitQrCode": {
                     "type": "boolean"
                   },
+                  "wipeSessionBeforeStart": {
+                    "type": "boolean",
+                    "description": "Remove userDataDir e arquivos de token desta sessão antes de abrir (novo pareamento / QR)."
+                  },
                   "proxy": {
                     "type": "object",
                     "properties": {
@@ -380,6 +384,7 @@
               "example": {
                 "webhook": "",
                 "waitQrCode": false,
+                "wipeSessionBeforeStart": false,
                 "proxy": {
                   "url": "http://myproxy.com:8080",
                   "username": "myuser",

@@ -14,18 +14,27 @@
  * limitations under the License.
  */
 import { Request, Response } from 'express';
-import fs from 'fs';
 import QRCode from 'qrcode';
 
 import { version } from '../../package.json';
-import config from '../config';
 import { download } from '../util/mediaDownloadUtil';
 import CreateSessionUtil from '../util/createSessionUtil';
 import { callWebHook, contactToArray } from '../util/functions';
 import getAllTokens from '../util/getAllTokens';
 import { clientsArray, deleteSessionOnArray } from '../util/sessionUtil';
+import {
+  closeWppClientIfPresent,
+  wipeSessionDiskData,
+} from '../util/wipeSessionDisk';
 
 const SessionUtil = new CreateSessionUtil();
+
+async function prepareFreshSessionStart(req: Request, session: string) {
+  const client = (clientsArray as any)[session];
+  await closeWppClientIfPresent(client, req.logger);
+  deleteSessionOnArray(session);
+  await wipeSessionDiskData(session, req.serverOptions?.customUserDataDir);
+}
 
 export async function startAllSessions(
   req: Request,
@@ -139,6 +148,7 @@ export async function startSession(req: Request, res: Response): Promise<any> {
             properties: {
               webhook: { type: "string" },
               waitQrCode: { type: "boolean" },
+              wipeSessionBeforeStart: { type: "boolean" },
               proxy: {
                 type: "object",
                 properties: {
@@ -152,6 +162,7 @@ export async function startSession(req: Request, res: Response): Promise<any> {
           example: {
             webhook: "",
             waitQrCode: false,
+            wipeSessionBeforeStart: false,
             proxy: {
               url: "http://myproxy.com:8080",
               username: "myuser",
@@ -163,7 +174,11 @@ export async function startSession(req: Request, res: Response): Promise<any> {
      }
    */
   const session = req.session;
-  const { waitQrCode = false } = req.body;
+  const { waitQrCode = false, wipeSessionBeforeStart = false } = req.body;
+
+  if (wipeSessionBeforeStart === true) {
+    await prepareFreshSessionStart(req, session);
+  }
 
   await getSessionState(req, res);
   await SessionUtil.opendata(req, session, waitQrCode ? res : null);
@@ -228,25 +243,8 @@ export async function logOutSession(req: Request, res: Response): Promise<any> {
     deleteSessionOnArray(req.session);
 
     setTimeout(async () => {
-      const pathUserData = config.customUserDataDir + req.session;
-      const pathTokens = __dirname + `../../../tokens/${req.session}.data.json`;
-
-      if (fs.existsSync(pathUserData)) {
-        await fs.promises.rm(pathUserData, {
-          recursive: true,
-          maxRetries: 5,
-          force: true,
-          retryDelay: 1000,
-        });
-      }
-      if (fs.existsSync(pathTokens)) {
-        await fs.promises.rm(pathTokens, {
-          recursive: true,
-          maxRetries: 5,
-          force: true,
-          retryDelay: 1000,
-        });
-      }
+      const sessionName = req.session;
+      await wipeSessionDiskData(sessionName, req.serverOptions?.customUserDataDir);
 
       req.io.emit('whatsapp-status', false);
       callWebHook(req.client, req, 'logoutsession', {
