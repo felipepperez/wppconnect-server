@@ -143,6 +143,9 @@ async function replyWithFallback(
   messageId?: string
 ) {
   try {
+    if (!messageId) {
+      return await req.client.sendText(contact, message);
+    }
     return await req.client.reply(contact, message, messageId);
   } catch (error) {
     if (messageId && isMsgChunksError(error)) {
