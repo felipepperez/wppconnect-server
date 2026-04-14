@@ -19,6 +19,19 @@ import { Request, Response } from 'express';
 import { unlinkAsync } from '../util/functions';
 
 function returnError(req: Request, res: Response, error: any) {
+  if (isMsgChunksError(error)) {
+    req.logger.warn(error);
+    res.status(200).json({
+      status: 'success',
+      warning: true,
+      message:
+        'Mensagem enviada com aviso. Falha ao recuperar dados da mensagem citada.',
+      error: error instanceof Error ? error.message : String(error ?? ''),
+      mapper: 'return',
+    });
+    return;
+  }
+
   req.logger.error(error);
   res.status(500).json({
     status: 'Error',
@@ -29,6 +42,114 @@ function returnError(req: Request, res: Response, error: any) {
 
 async function returnSucess(res: any, data: any) {
   res.status(201).json({ status: 'success', response: data, mapper: 'return' });
+}
+
+function isMsgChunksError(error: any) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return message.includes('msgChunks') || message.includes('getMessageById');
+}
+
+async function sendTextWithQuotedFallback(
+  req: Request,
+  contact: string,
+  message: string,
+  options: any
+) {
+  try {
+    return await req.client.sendText(contact, message, options);
+  } catch (error) {
+    if (options?.quotedMsg && isMsgChunksError(error)) {
+      const { quotedMsg, ...safeOptions } = options;
+      return await req.client.sendText(contact, message, safeOptions);
+    }
+    throw error;
+  }
+}
+
+async function sendFileWithQuotedFallback(
+  req: Request,
+  contact: string,
+  pathFile: string,
+  options: any
+) {
+  try {
+    return await req.client.sendFile(contact, pathFile, options);
+  } catch (error) {
+    if (options?.quotedMsg && isMsgChunksError(error)) {
+      const { quotedMsg, ...safeOptions } = options;
+      return await req.client.sendFile(contact, pathFile, safeOptions);
+    }
+    throw error;
+  }
+}
+
+async function sendPttWithQuotedFallback(
+  req: Request,
+  contact: string,
+  path: string,
+  filename: string,
+  message: string,
+  quotedMessageId?: string
+) {
+  try {
+    return await req.client.sendPtt(
+      contact,
+      path,
+      filename,
+      message,
+      quotedMessageId
+    );
+  } catch (error) {
+    if (quotedMessageId && isMsgChunksError(error)) {
+      return await req.client.sendPtt(contact, path, filename, message);
+    }
+    throw error;
+  }
+}
+
+async function sendPttFromBase64WithQuotedFallback(
+  req: Request,
+  contact: string,
+  base64Ptt: string,
+  filename: string,
+  message: string,
+  quotedMessageId?: string
+) {
+  try {
+    return await req.client.sendPttFromBase64(
+      contact,
+      base64Ptt,
+      filename,
+      message,
+      quotedMessageId
+    );
+  } catch (error) {
+    if (quotedMessageId && isMsgChunksError(error)) {
+      return await req.client.sendPttFromBase64(
+        contact,
+        base64Ptt,
+        filename,
+        message
+      );
+    }
+    throw error;
+  }
+}
+
+async function replyWithFallback(
+  req: Request,
+  contact: string,
+  message: string,
+  messageId?: string
+) {
+  try {
+    return await req.client.reply(contact, message, messageId);
+  } catch (error) {
+    if (messageId && isMsgChunksError(error)) {
+      return await req.client.sendText(contact, message);
+    }
+    throw error;
+  }
 }
 
 export async function sendMessage(req: Request, res: Response) {
@@ -97,7 +218,9 @@ export async function sendMessage(req: Request, res: Response) {
   try {
     const results: any = [];
     for (const contato of phone) {
-      results.push(await req.client.sendText(contato, message, options));
+      results.push(
+        await sendTextWithQuotedFallback(req, contato, message, options)
+      );
     }
 
     if (results.length === 0) res.status(400).json('Error sending message');
@@ -221,13 +344,14 @@ export async function sendFile(req: Request, res: Response) {
   try {
     const results: any = [];
     for (const contact of phone) {
+      const sendFileOptions = {
+        filename: filename,
+        caption: msg,
+        quotedMsg: quotedMessageId,
+        ...options,
+      };
       results.push(
-        await req.client.sendFile(contact, pathFile, {
-          filename: filename,
-          caption: msg,
-          quotedMsg: quotedMessageId,
-          ...options,
-        })
+        await sendFileWithQuotedFallback(req, contact, pathFile, sendFileOptions)
       );
     }
 
@@ -288,7 +412,8 @@ export async function sendVoice(req: Request, res: Response) {
     const results: any = [];
     for (const contato of phone) {
       results.push(
-        await req.client.sendPtt(
+        await sendPttWithQuotedFallback(
+          req,
           contato,
           path,
           filename,
@@ -346,7 +471,8 @@ export async function sendVoice64(req: Request, res: Response) {
     const results: any = [];
     for (const contato of phone) {
       results.push(
-        await req.client.sendPttFromBase64(
+        await sendPttFromBase64WithQuotedFallback(
+          req,
           contato,
           base64Ptt,
           'Voice Audio',
@@ -849,7 +975,7 @@ export async function replyMessage(req: Request, res: Response) {
   try {
     const results: any = [];
     for (const contato of phone) {
-      results.push(await req.client.reply(contato, message, messageId));
+      results.push(await replyWithFallback(req, contato, message, messageId));
     }
 
     if (results.length === 0) res.status(400).json('Error sending message');
